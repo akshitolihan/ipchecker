@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Threat Reputation Checker</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'Segoe UI', Tahoma, sans-serif; background: #0f1117; color: #e2e8f0; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 24px 16px 60px; }
+h1 { font-size: 20px; color: #00ff66; border-bottom: 1px solid #2d3748; padding-bottom: 10px; }
+.sub { font-size: 12px; color: #718096; font-weight: 400; margin-left: 10px; }
+.card { background: #161a23; border: 1px solid #2d3748; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+label { display: block; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #a0aec0; margin-bottom: 8px; }
+.hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: #718096; }
+.row { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+input[type=text], input[type=password], textarea, select { padding: 10px; background: #1a202c; border: 1px solid #4a5568; color: #fff; border-radius: 6px; font-size: 13px; font-family: monospace; }
+input:focus, textarea:focus { border-color: #00ff66; outline: none; }
+textarea { resize: vertical; width: 100%; }
+.row input[type=text] { flex: 1; }
+button { padding: 10px 18px; border: none; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; background: #2d3748; color: #e2e8f0; }
+button:hover:not(:disabled) { filter: brightness(1.2); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: #3182ce; color: #fff; }
+button.danger { background: #c53030; color: #fff; }
+button.small { padding: 4px 10px; font-size: 11px; }
+.tabs { display: flex; margin-bottom: -1px; }
+.tab { padding: 10px 22px; background: #11141b; border: 1px solid #2d3748; border-bottom: none; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 13px; font-weight: 700; color: #718096; }
+.tab.active { background: #161a23; color: #00ff66; }
+.status { font-size: 13px; min-height: 18px; margin-top: 10px; color: #cbd5e0; }
+.progress-track { height: 8px; background: #1a202c; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+.progress-fill { height: 100%; width: 0%; background: #00ff66; transition: width .3s; }
+.summary { font-size: 13px; margin-bottom: 10px; color: #a0aec0; }
+.summary b.mal { color: #fc8181; } .summary b.sus { color: #f6e05e; } .summary b.clean { color: #68d391; }
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #2d3748; white-space: nowrap; }
+th { color: #a0aec0; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+td.ip { font-family: monospace; }
+/* keep the copy actions pinned to the right edge so they're always reachable
+   without horizontal scrolling on the wide tables */
+th.act, td.act { position: sticky; right: 0; background: #161a23; box-shadow: -8px 0 10px -8px rgba(0,0,0,.7); text-align: right; }
+td a { color: #63b3ed; text-decoration: none; }
+td a:hover { text-decoration: underline; }
+td.na { color: #4a5568; }
+.badge { padding: 2px 10px; border-radius: 10px; font-weight: 700; font-size: 11px; }
+.badge.malicious { background: rgba(229,62,62,.2); color: #fc8181; border: 1px solid #c53030; }
+.badge.suspicious { background: rgba(214,158,46,.2); color: #f6e05e; border: 1px solid #b7791f; }
+.badge.clean { background: rgba(56,161,105,.2); color: #68d391; border: 1px solid #2f855a; }
+.cachedmark { font-size: 10px; color: #718096; margin-left: 6px; }
+.country-detail { display: block; margin-top: 3px; color: #718096; font-size: 11px; white-space: normal; line-height: 1.35; }
+.country-detail.warn { color: #f6e05e; }
+.svcline { font-size: 12px; color: #718096; margin-top: 8px; }
+.svcline b.on { color: #68d391; } .svcline b.off { color: #4a5568; text-decoration: line-through; }
+label.inline { display: inline-flex; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; color: #a0aec0; margin: 0; }
+details summary { cursor: pointer; font-size: 13px; font-weight: 700; color: #a0aec0; }
+.phlist { font-size: 11px; color: #718096; font-family: monospace; line-height: 1.8; margin-top: 8px; }
+.toast { position: fixed; bottom: 20px; right: 20px; background: #2f855a; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 700; opacity: 0; transition: opacity .3s; pointer-events: none; }
+.toast.show { opacity: 1; }
+#lockScreen { position: fixed; inset: 0; background: #0f1117; display: flex; align-items: center; justify-content: center; z-index: 99; }
+#lockScreen .card { width: 340px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<div id="lockScreen" style="display:none">
+  <div class="card">
+    <label>🔒 Access Password</label>
+    <input type="password" id="pwInput" style="width:100%" placeholder="Enter password...">
+    <div class="row"><button id="pwBtn" class="primary" style="width:100%">Unlock</button></div>
+    <div class="status" id="pwStatus"></div>
+  </div>
+</div>
+
+<div class="wrap">
+  <h1>🛡️ Threat Reputation Checker <span class="sub">IP · Domain · Hash — VirusTotal · AbuseIPDB · IPVoid · URLVoid · MetaDefender · Talos</span></h1>
+
+  <div class="tabs">
+    <div class="tab active" id="tabSingle">Single IP</div>
+    <div class="tab" id="tabBulk">Bulk IPs</div>
+    <div class="tab" id="tabDomain">Domain</div>
+    <div class="tab" id="tabHash">File Hash</div>
+    <div class="tab" id="tabTemplate">Investigation Log</div>
+  </div>
+
+  <div class="card" id="panelSingle">
+    <label for="singleIp">Check one IP <span class="hint">(defanged like 1.2.3[.]4 is fine)</span></label>
+    <div class="row">
+      <input type="text" id="singleIp" placeholder="e.g. 185.220.101.4">
+      <button id="singleBtn" class="primary">Check</button>
+      <label class="inline" title="AbuseIPDB counts only reports within this window. 365d is the API maximum (true all-time, incl. reports older than 1 year, is not available via the API). The confidence score is window-independent.">AbuseIPDB window
+        <select id="abuseWindow">
+          <option value="30">30 days</option>
+          <option value="90">90 days</option>
+          <option value="180">180 days</option>
+          <option value="365" selected>365 days (max / all-time)</option>
+        </select>
+      </label>
+    </div>
+    <div class="svcline" id="svcLine"></div>
+  </div>
+
+  <div class="card" id="panelBulk" style="display:none">
+    <label for="bulkIps">Check many IPs <span class="hint">(one per line)</span></label>
+    <textarea id="bulkIps" rows="8" placeholder="8.8.8.8&#10;185.220.101[.]4&#10;1.1.1.1"></textarea>
+    <div class="row">
+      <button id="bulkBtn" class="primary">▶ Check All</button>
+      <button id="stopBtn" class="danger" disabled>■ Stop</button>
+      <label class="inline"><input type="checkbox" id="slowMode"> Free VirusTotal key (limit to 4/min)</label>
+    </div>
+    <div class="progress-track"><div id="progressBar" class="progress-fill"></div></div>
+  </div>
+
+  <div class="card" id="panelDomain" style="display:none">
+    <label for="domainInput">Check a domain <span class="hint">(defanged like evil[.]com or a full URL is fine)</span></label>
+    <div class="row">
+      <input type="text" id="domainInput" placeholder="e.g. example.com">
+      <button id="domainBtn" class="primary">Check</button>
+    </div>
+    <div class="svcline" id="svcLineDomain"></div>
+  </div>
+
+  <div class="card" id="panelHash" style="display:none">
+    <label for="hashInput">Check a file hash <span class="hint">(MD5, SHA-1, or SHA-256)</span></label>
+    <div class="row">
+      <input type="text" id="hashInput" placeholder="e.g. 44d88612fea8a8f36de82e1278abb02f">
+      <button id="hashBtn" class="primary">Check</button>
+    </div>
+    <div class="svcline" id="svcLineHash"></div>
+  </div>
+
+  <div class="card" id="panelTemplate" style="display:none">
+    <label>Investigation log <span class="hint">— auto-fills with the full investigation for every unique IP / domain / hash you check (duplicates are skipped). Editable; edits save automatically.</span></label>
+    <textarea id="templateBox" rows="18" spellcheck="false" placeholder="Investigations you run will appear here..."></textarea>
+    <div class="row">
+      <button id="copyLogBtn" class="primary">📋 Copy log</button>
+      <button id="resetTemplateBtn" class="danger">🗑 Clear log</button>
+    </div>
+  </div>
+
+  <div id="status" class="status"></div>
+
+  <div class="card" id="resultsCardIp">
+    <div class="row" style="margin: 0 0 10px; justify-content: space-between;">
+      <div class="summary" id="summary"></div>
+      <div class="row" style="margin:0">
+        <button id="shareIpBtn" class="primary" title="Create a shareable link that re-runs these IP lookups">🔗 Share</button>
+        <button id="copyAllBtn">📋 Copy All</button>
+        <button id="exportBtn">⬇ Export Excel</button>
+        <button id="clearBtn" title="Clears the table AND stored browser history">🗑 Clear All</button>
+        <label class="inline">Keep results for
+          <select id="ttlSelect">
+            <option value="1">1 hour</option>
+            <option value="24" selected>24 hours</option>
+            <option value="168">7 days</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>IP Address</th><th>Verdict</th>
+            <th title="VirusTotal: malicious engines / total engines checked">VT Mal/Total</th>
+            <th title="AbuseIPDB: confidence score out of 100 / total reports">Abuse Score / Reports</th>
+            <th>Cisco Talos</th>
+            <th title="Primary country plus per-source country values when providers disagree">Country / Sources</th><th>ISP / AS</th>
+            <th title="Autonomous System Number">ASN</th>
+            <th title="Domain / hostname from AbuseIPDB (falls back to reverse DNS)">Domain / Host</th>
+            <th>Checked</th><th>Links</th><th class="act"></th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" id="resultsCardDomain" style="display:none">
+    <div class="row" style="margin: 0 0 10px; justify-content: space-between;">
+      <div class="summary" id="summaryDomain"></div>
+      <div class="row" style="margin:0">
+        <button id="shareDomainBtn" class="primary" title="Create a shareable link that re-runs these domain lookups">🔗 Share</button>
+        <button id="clearDomainBtn" title="Clears domain results from this browser">🗑 Clear</button>
+      </div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Domain</th><th>Verdict</th>
+            <th title="VirusTotal: malicious engines / total engines checked">VT Mal/Total</th>
+            <th title="VirusTotal community reputation score">VT Rep</th>
+            <th title="URLVoid (APIVoid) blacklist detections / total engines">URLVoid BL</th>
+            <th title="APIVoid risk score 0-100">Risk</th>
+            <th title="Cisco Talos web reputation: Untrusted / Questionable / Neutral / Favorable / Trusted">Talos Web Rep</th>
+            <th title="Hosting ASN / ISP from URLVoid">ASN</th>
+            <th title="Hosting location from URLVoid">Location</th>
+            <th>Categories</th><th>Checked</th><th>Links</th><th class="act"></th>
+          </tr>
+        </thead>
+        <tbody id="resultsBodyDomain"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" id="resultsCardHash" style="display:none">
+    <div class="row" style="margin: 0 0 10px; justify-content: space-between;">
+      <div class="summary" id="summaryHash"></div>
+      <div class="row" style="margin:0">
+        <button id="shareHashBtn" class="primary" title="Create a shareable link that re-runs these hash lookups">🔗 Share</button>
+        <button id="clearHashBtn" title="Clears hash results from this browser">🗑 Clear</button>
+      </div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Hash</th><th>Algo</th><th>Verdict</th>
+            <th title="VirusTotal: malicious engines / total engines checked">VT Mal/Total</th>
+            <th title="MetaDefender: AV engines detecting / total">MetaDefender</th>
+            <th title="VirusTotal suggested threat label">Threat Label</th>
+            <th title="File type">Type</th><th>Checked</th><th>Links</th><th class="act"></th>
+          </tr>
+        </thead>
+        <tbody id="resultsBodyHash"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer style="text-align:center; margin-top:28px; padding-top:16px; border-top:1px solid #2d3748; color:#718096; font-size:12px;">
+    Made by Sahil
+  </footer>
+</div>
+
+<div class="toast" id="toast">Copied!</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let results = [];
+let stopRequested = false;
+let appPassword = localStorage.getItem("appPassword") || "";
+
+// =============== DEFAULT COPY TEMPLATE ===============
+const DEFAULT_TEMPLATE = `=== IP INVESTIGATION (FULL) ===
+IP / Domain    : {ip}
+Verdict        : {verdict}
+Checked (UTC)  : {checked_at}
+Malicious count: {malicious_count}
+
+-- Host (combined) --
+ISP            : {isp}
+ASN            : {asn}
+Domain / Host  : {abuse_domain}
+Hostnames      : {abuse_hostnames}
+Country        : {country}
+Country Sources: {country_sources}
+Continent      : {continent}
+Reverse DNS    : {reverse_dns}
+
+-- VirusTotal --
+Summary        : {vt_result}
+Malicious      : {vt_malicious}
+Suspicious     : {vt_suspicious}
+Harmless       : {vt_harmless}
+Undetected     : {vt_undetected}
+Timeout        : {vt_timeout}
+Country        : {vt_country}
+AS Owner       : {vt_asowner}
+ASN            : {vt_asn}
+Link           : {vt_link}
+
+-- AbuseIPDB --
+Confidence     : {abuse_score}%
+Reports        : {abuse_reports} (last {abuse_window}d)
+Tor Exit Node  : {abuse_tor_yn}
+Usage Type     : {abuse_usage_type}
+ISP            : {abuse_isp}
+Country        : {abuse_country}
+Domain         : {abuse_domain}
+Hostnames      : {abuse_hostnames}
+Link           : {abuse_link}
+
+-- IPVoid / APIVoid --
+Summary        : {ipvoid_result}
+Detections     : {ipvoid_detections} / {ipvoid_engines}
+Country        : {ipvoid_country}
+ISP            : {ipvoid_isp}
+Continent      : {ipvoid_continent}
+Reverse DNS    : {ipvoid_reverse_dns}
+ASN            : {ipvoid_asn}
+AS Name        : {ipvoid_asn_name}
+
+Analyst Notes:
+- `;
+
+// =============== STORAGE (browser only) ===============
+function ttlHours() { return parseInt($("ttlSelect").value, 10); }
+
+// Bump when the result schema gains fields, so stale cached rows (which would
+// render as N/A in the copy template) are purged automatically on next load.
+const RESULTS_SCHEMA = "7";
+if (localStorage.getItem("resultsSchema") !== RESULTS_SCHEMA) {
+  localStorage.removeItem("ipResults");
+  localStorage.removeItem("domainResults");
+  localStorage.removeItem("hashResults");
+  localStorage.setItem("resultsSchema", RESULTS_SCHEMA);
+}
+
+function loadStored() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("ipResults") || "[]");
+    const cutoff = Date.now() - ttlHours() * 3600 * 1000;
+    // keep only rows that carry the current schema's fields
+    return raw.filter(r => new Date(r.checked_at).getTime() > cutoff && "asn" in r);
+  } catch { return []; }
+}
+
+function saveStored() {
+  try { localStorage.setItem("ipResults", JSON.stringify(results.slice(0, 500))); }
+  catch { /* storage full - ignore */ }
+}
+
+function abuseWindow() { return parseInt($("abuseWindow").value, 10) || 90; }
+
+function findCached(ip) {
+  const cutoff = Date.now() - ttlHours() * 3600 * 1000;
+  // a cached row only counts if it used the SAME AbuseIPDB window (report
+  // counts differ per window), otherwise re-fetch
+  return results.find(r => r.ip === ip && new Date(r.checked_at).getTime() > cutoff
+    && (r.abuse?.window_days || 90) === abuseWindow());
+}
+
+// ttl preference
+$("ttlSelect").value = localStorage.getItem("ttlHours") || "24";
+$("ttlSelect").addEventListener("change", () => localStorage.setItem("ttlHours", $("ttlSelect").value));
+
+// AbuseIPDB window preference
+$("abuseWindow").value = localStorage.getItem("abuseWindow") || "365";
+$("abuseWindow").addEventListener("change", () => localStorage.setItem("abuseWindow", $("abuseWindow").value));
+
+// =============== AUTH ===============
+async function init() {
+  const r = await fetch("/api/auth-required");
+  const { password_required } = await r.json();
+  if (password_required && !appPassword) {
+    $("lockScreen").style.display = "flex";
+  } else if (password_required) {
+    // verify saved password still valid
+    const ok = await fetchConfig();
+    if (!ok) { appPassword = ""; localStorage.removeItem("appPassword"); $("lockScreen").style.display = "flex"; }
+  } else {
+    await fetchConfig();
+  }
+  // restore stored results
+  results = loadStored();
+  results.forEach(res => renderRow(res, false));
+  updateSummary();
+}
+
+$("pwBtn").onclick = async () => {
+  appPassword = $("pwInput").value;
+  const ok = await fetchConfig();
+  if (ok) {
+    localStorage.setItem("appPassword", appPassword);
+    $("lockScreen").style.display = "none";
+  } else {
+    $("pwStatus").textContent = "❌ Wrong password.";
+  }
+};
+$("pwInput").addEventListener("keydown", e => { if (e.key === "Enter") $("pwBtn").click(); });
+
+function authHeaders() {
+  const h = { "Content-Type": "application/json" };
+  if (appPassword) h["X-App-Password"] = appPassword;
+  return h;
+}
+
+async function fetchConfig() {
+  const r = await fetch("/api/config", { headers: authHeaders() });
+  if (!r.ok) return false;
+  const c = await r.json();
+  const part = (name, on) => `<b class="${on ? "on" : "off"}">${name}</b>`;
+  $("svcLine").innerHTML = "Active sources: " +
+    [part("VirusTotal", c.vt), part("AbuseIPDB", c.abuse), part("IPVoid", c.apivoid)].join(" · ");
+  $("svcLineDomain").innerHTML = "Active sources: " +
+    [part("VirusTotal", c.vt), part("URLVoid", c.apivoid), part("Talos Web Rep", true)].join(" · ");
+  $("svcLineHash").innerHTML = "Active sources: " +
+    [part("VirusTotal", c.vt), part("MetaDefender", c.metadefender)].join(" · ");
+  return true;
+}
+
+// =============== TABS ===============
+const panels = {
+  tabSingle: "panelSingle", tabBulk: "panelBulk",
+  tabDomain: "panelDomain", tabHash: "panelHash", tabTemplate: "panelTemplate"
+};
+// which results card to show per tab
+const resultsCardFor = {
+  tabSingle: "resultsCardIp", tabBulk: "resultsCardIp",
+  tabDomain: "resultsCardDomain", tabHash: "resultsCardHash", tabTemplate: null
+};
+Object.keys(panels).forEach(tabId => {
+  $(tabId).onclick = () => {
+    Object.entries(panels).forEach(([t, p]) => {
+      $(t).classList.toggle("active", t === tabId);
+      $(p).style.display = t === tabId ? "" : "none";
+    });
+    const showCard = resultsCardFor[tabId];
+    ["resultsCardIp", "resultsCardDomain", "resultsCardHash"].forEach(c => {
+      // on the Template tab keep the last-shown table; otherwise show the matching one
+      if (showCard) $(c).style.display = c === showCard ? "" : "none";
+    });
+  };
+});
+
+// =============== INVESTIGATION LOG ===============
+// The textbox accumulates the fully-rendered investigation for every unique
+// IP/domain/hash checked. Duplicates (same subject) are skipped.
+const LOG_DIVIDER = "\n\n" + "=".repeat(48) + "\n\n";
+let loggedSubjects = new Set(JSON.parse(localStorage.getItem("loggedSubjects") || "[]"));
+
+// restore previous log text + allow manual edits to persist
+$("templateBox").value = localStorage.getItem("investigationLog") || "";
+$("templateBox").addEventListener("input", () =>
+  localStorage.setItem("investigationLog", $("templateBox").value));
+
+function renderInvestigation(r) {
+  if (r.hash) return hashSummaryText(r);
+  if (r.domain) return domainSummaryText(r);
+  return fillTemplate(r);
+}
+
+function addToInvestigationLog(r) {
+  const subject = r.ip || r.domain || r.hash;
+  if (!subject || loggedSubjects.has(subject)) return;   // skip duplicates
+  loggedSubjects.add(subject);
+  const box = $("templateBox");
+  box.value = box.value.trim() ? box.value.replace(/\s+$/, "") + LOG_DIVIDER + renderInvestigation(r) : renderInvestigation(r);
+  localStorage.setItem("investigationLog", box.value);
+  localStorage.setItem("loggedSubjects", JSON.stringify([...loggedSubjects]));
+}
+
+$("resetTemplateBtn").onclick = () => {
+  if (!confirm("Clear the investigation log?")) return;
+  loggedSubjects = new Set();
+  $("templateBox").value = "";
+  localStorage.removeItem("investigationLog");
+  localStorage.removeItem("loggedSubjects");
+};
+$("copyLogBtn").onclick = () => {
+  if (!$("templateBox").value.trim()) { $("status").textContent = "⚠ Log is empty."; return; }
+  copyText($("templateBox").value);
+};
+
+function countrySourcesText(r) {
+  const sources = r.country_sources || {};
+  const entries = Object.entries(sources).filter(([, country]) => country);
+  if (entries.length) return entries.map(([source, country]) => `${source}: ${country}`).join(" | ");
+  const fallback = [
+    ["VirusTotal", r.vt && !r.vt.error ? r.vt.country : ""],
+    ["AbuseIPDB", r.abuse && !r.abuse.error ? r.abuse.country : ""],
+    ["IPVoid", r.apivoid && !r.apivoid.error ? r.apivoid.country : ""]
+  ].filter(([, country]) => country);
+  return fallback.length ? fallback.map(([source, country]) => `${source}: ${country}`).join(" | ") : "";
+}
+
+function countryCell(r) {
+  const cell = td(r.country || "—", r.country ? "" : "na");
+  const detail = r.country_disagreement ? countrySourcesText(r) : "";
+  if (detail) {
+    const span = document.createElement("span");
+    span.className = "country-detail warn";
+    span.textContent = detail;
+    cell.appendChild(span);
+  }
+  if (r.country_disagreement) cell.title = "Different OSINT sources report different countries for this IP.";
+  return cell;
+}
+
+function fillTemplate(r) {
+  const vt = r.vt && !r.vt.error ? r.vt : null;
+  const ab = r.abuse && !r.abuse.error ? r.abuse : null;
+  const av = r.apivoid && !r.apivoid.error ? r.apivoid : null;
+  const map = {
+    ip: r.ip,
+    verdict: (r.verdict || "").toUpperCase(),
+    checked_at: (r.checked_at || "").slice(0, 19).replace("T", " ") + " UTC",
+    country: r.country || "N/A",
+    country_sources: r.country_disagreement ? countrySourcesText(r) : "N/A",
+    continent: r.continent || "N/A",
+    isp: r.isp || "N/A",
+    asn: r.asn ? (r.asn + (r.asn_name ? ` (${r.asn_name})` : "")) : "N/A",
+    reverse_dns: r.reverse_dns || "N/A",
+    abuse_domain: (ab && (ab.domain || (ab.hostnames && ab.hostnames[0]))) || r.reverse_dns || "N/A",
+    abuse_hostnames: (ab && ab.hostnames && ab.hostnames.length) ? ab.hostnames.join(", ") : "N/A",
+    malicious_count: (vt ? vt.malicious : 0) + (av ? av.detections : 0),
+    ipvoid_result: av ? `${av.detections > 0 ? "Malicious" : "Clean"}(${av.detections}/${av.engines_count})` : "N/A",
+    vt_result: vt ? `${vt.malicious > 0 ? "Malicious" : (vt.suspicious > 0 ? "Suspicious" : "Clean")}(${vt.malicious}/${vtTotal(vt)})` : "N/A",
+    vt_malicious: vt ? vt.malicious : "N/A",
+    vt_suspicious: vt ? vt.suspicious : "N/A",
+    vt_harmless: vt ? vt.harmless : "N/A",
+    vt_total: vt ? vt.malicious + vt.suspicious + vt.harmless + (vt.undetected||0) + (vt.timeout||0) : "N/A",
+    vt_link: `https://www.virustotal.com/gui/ip-address/${r.ip}`,
+    abuse_score: ab ? ab.score : "N/A",
+    abuse_reports: ab ? ab.reports : "N/A",
+    abuse_window: ab ? (ab.window_days || 90) : "N/A",
+    abuse_tor: ab && ab.is_tor ? " · Tor exit node" : "",
+    abuse_usage_type: ab ? (ab.usage_type || "N/A") : "N/A",
+    abuse_link: `https://www.abuseipdb.com/check/${r.ip}`,
+    ipvoid_detections: av ? av.detections : "N/A",
+    ipvoid_engines: av ? av.engines_count : "N/A",
+    // --- full per-source fields ---
+    vt_undetected: vt ? (vt.undetected || 0) : "N/A",
+    vt_timeout: vt ? (vt.timeout || 0) : "N/A",
+    vt_country: vt ? (vt.country || "N/A") : "N/A",
+    vt_asowner: vt ? (vt.as_owner || "N/A") : "N/A",
+    vt_asn: vt ? (vt.asn || "N/A") : "N/A",
+    abuse_country: ab ? (ab.country || "N/A") : "N/A",
+    abuse_isp: ab ? (ab.isp || "N/A") : "N/A",
+    abuse_tor_yn: ab ? (ab.is_tor ? "Yes" : "No") : "N/A",
+    ipvoid_country: av ? (av.country || "N/A") : "N/A",
+    ipvoid_isp: av ? (av.isp || "N/A") : "N/A",
+    ipvoid_continent: av ? (av.continent || "N/A") : "N/A",
+    ipvoid_reverse_dns: av ? (av.reverse_dns || "N/A") : "N/A",
+    ipvoid_asn: av ? (av.asn || "N/A") : "N/A",
+    ipvoid_asn_name: av ? (av.asn_name || "N/A") : "N/A"
+  };
+  let out = DEFAULT_TEMPLATE;
+  for (const [k, v] of Object.entries(map)) {
+    out = out.split(`{${k}}`).join(String(v));
+  }
+  if (!r.country_disagreement) out = out.replace(/^Country Sources: .*[\r\n]+/m, "");
+  return out;
+}
+
+// Complete dump of EVERY field returned by EVERY API source for one result.
+// Generic over the result shape, so it works for IP / domain / hash and
+// auto-includes any future fields.
+const _FULL_SOURCES = {
+  vt: "VirusTotal", abuse: "AbuseIPDB", apivoid: "IPVoid / APIVoid",
+  urlvoid: "URLVoid (APIVoid)", talos: "Cisco Talos", metadefender: "MetaDefender"
+};
+
+function _fmtVal(v) {
+  if (Array.isArray(v)) return v.length ? v.join(", ") : "(none)";
+  if (v === null || v === undefined || v === "") return "(empty)";
+  return String(v);
+}
+
+function fullDataText(r) {
+  const subject = r.ip || r.domain || r.hash || "";
+  const lines = [`=== FULL DATA: ${subject} ===`];
+  // top-level scalar fields (verdict, checked_at, combined country/isp/asn, etc.)
+  for (const [k, v] of Object.entries(r)) {
+    if (k in _FULL_SOURCES || k === "cached") continue;
+    if (v !== null && typeof v === "object") continue;
+    lines.push(`${k}: ${_fmtVal(v)}`);
+  }
+  // per-source sections with every field
+  for (const [key, name] of Object.entries(_FULL_SOURCES)) {
+    const obj = r[key];
+    if (!obj) continue;
+    lines.push(`\n[${name}]`);
+    if (obj.error) { lines.push(`error: ${obj.error}`); continue; }
+    for (const [k, v] of Object.entries(obj)) lines.push(`${k}: ${_fmtVal(v)}`);
+  }
+  return lines.join("\n");
+}
+
+function showToast(msg) {
+  const t = $("toast");
+  t.textContent = msg || "Copied!";
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 1600);
+}
+
+// Legacy clipboard path for when the async Clipboard API is blocked
+// (NotAllowedError / insecure context / permissions policy).
+function fallbackCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.top = "-1000px";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+function copyText(text, okMsg) {
+  const ok = okMsg || "Copied!";
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text)
+      .then(() => showToast(ok))
+      .catch(() => showToast(fallbackCopy(text) ? ok : "Copy failed — select manually"));
+  } else {
+    showToast(fallbackCopy(text) ? ok : "Copy failed — select manually");
+  }
+}
+
+// =============== SHAREABLE LINKS ===============
+// Classify a target so a shared ?q= can be routed to the right checker.
+function classifyTarget(s) {
+  const v = s.trim().replace(/\[\.\]|\(\.\)|\{\.\}/g, ".").replace(/^https?:\/\//i, "").split("/")[0];
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) return "ip";
+  if (/^[a-f0-9]{32}$/i.test(v) || /^[a-f0-9]{40}$/i.test(v) || /^[a-f0-9]{64}$/i.test(v)) return "hash";
+  if (/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(v)) return "domain";
+  return null;
+}
+
+function buildShareUrl(subjects) {
+  return location.origin + location.pathname + "?q=" + encodeURIComponent(subjects.join(","));
+}
+
+function shareSubjects(subjects) {
+  const clean = [...new Set(subjects.filter(Boolean))];
+  if (!clean.length) { $("status").textContent = "⚠ Nothing to share yet."; return; }
+  copyText(buildShareUrl(clean), `🔗 Share link copied (${clean.length} target${clean.length > 1 ? "s" : ""})`);
+}
+
+// On load: if ?q= is present, re-run every target and populate its tab.
+async function loadFromQuery() {
+  const q = new URLSearchParams(location.search).get("q");
+  if (!q) return;
+  const targets = q.split(",").map(s => s.trim()).filter(Boolean);
+  if (!targets.length) return;
+  $("status").textContent = `🔗 Loading shared investigation (${targets.length} target${targets.length > 1 ? "s" : ""})...`;
+  let firstType = null, done = 0;
+  for (const t of targets) {
+    const type = classifyTarget(t);
+    if (!type) continue;
+    if (!firstType) firstType = type;
+    try {
+      if (type === "ip") {
+        const res = await checkWithCache(t);
+        results = results.filter(r => r.ip !== res.ip); results.unshift(res);
+        saveStored(); renderRow(res); updateSummary(); addToInvestigationLog(res);
+      } else if (type === "domain") {
+        const res = await apiCheckDomain(t);
+        domainResults = domainResults.filter(r => r.domain !== res.domain); domainResults.unshift(res);
+        localStorage.setItem("domainResults", JSON.stringify(domainResults.slice(0, 300)));
+        renderDomainRow(res); updateDomainSummary(); addToInvestigationLog(res);
+      } else if (type === "hash") {
+        const res = await apiCheckHash(t);
+        hashResults = hashResults.filter(r => r.hash !== res.hash); hashResults.unshift(res);
+        localStorage.setItem("hashResults", JSON.stringify(hashResults.slice(0, 300)));
+        renderHashRow(res); updateHashSummary(); addToInvestigationLog(res);
+      }
+      done++;
+    } catch (e) { /* skip individual failures */ }
+  }
+  if (firstType === "domain") $("tabDomain").click();
+  else if (firstType === "hash") $("tabHash").click();
+  $("status").textContent = `🔗 Loaded shared investigation — ${done}/${targets.length} target${targets.length > 1 ? "s" : ""}.`;
+}
+
+// =============== API ===============
+async function apiCheck(ip) {
+  const r = await fetch("/api/check", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ ip, max_age_days: abuseWindow() })
+  });
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+  return body;
+}
+
+async function checkWithCache(ipRaw) {
+  // crude client-side refang to match server normalization for cache lookup
+  const clean = ipRaw.trim().replace(/\[\.\]|\(\.\)|\{\.\}/g, ".");
+  const m = clean.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+  if (m) {
+    const hit = findCached(m[0]);
+    if (hit?.talos) return { ...hit, cached: true };
+  }
+  const res = await apiCheck(ipRaw);
+  res.cached = false;
+  // replace any older record for this ip
+  results = results.filter(r => r.ip !== res.ip);
+  return res;
+}
+
+// =============== RENDERING ===============
+function td(text, cls) {
+  const c = document.createElement("td");
+  if (cls) c.className = cls;
+  c.textContent = text;
+  return c;
+}
+
+function renderRow(res, prepend = true) {
+  const tr = document.createElement("tr");
+  const ipTd = td(res.ip, "ip");
+  if (res.cached) {
+    const m = document.createElement("span");
+    m.className = "cachedmark"; m.textContent = "(cached)";
+    ipTd.appendChild(m);
+  }
+  tr.appendChild(ipTd);
+
+  const vTd = document.createElement("td");
+  const badge = document.createElement("span");
+  badge.className = "badge " + res.verdict;
+  badge.textContent = res.verdict.toUpperCase();
+  vTd.appendChild(badge);
+  tr.appendChild(vTd);
+
+  const svc = (obj, fmt) => {
+    if (!obj) return td("—", "na");
+    if (obj.error) return td("err: " + obj.error);
+    return td(fmt(obj));
+  };
+  tr.appendChild(svc(res.vt, o => `${o.malicious} / ${o.malicious + o.suspicious + o.harmless + (o.undetected||0) + (o.timeout||0)}`));
+  tr.appendChild(svc(res.abuse, o => `${o.score}/100 · ${o.reports} rpts (${o.window_days || 90}d)` + (o.is_tor ? " Tor" : "")));
+  tr.appendChild(svc(res.talos, o => o.web_reputation || "Unknown"));
+  tr.appendChild(countryCell(res));
+  tr.appendChild(td(res.isp || ""));
+  tr.appendChild(td(res.asn ? res.asn + (res.asn_name ? ` (${res.asn_name})` : "") : "—", res.asn ? "" : "na"));
+  const abuseHost = (res.abuse && !res.abuse.error && (res.abuse.domain || (res.abuse.hostnames && res.abuse.hostnames[0]))) || res.reverse_dns || "";
+  tr.appendChild(td(abuseHost || "—", abuseHost ? "" : "na"));
+  tr.appendChild(td((res.checked_at || "").slice(0, 16).replace("T", " ")));
+
+  const linkTd = document.createElement("td");
+  [["VT", `https://www.virustotal.com/gui/ip-address/${res.ip}`],
+   ["AIPDB", `https://www.abuseipdb.com/check/${res.ip}`],
+   ["Talos", `https://talosintelligence.com/reputation_center/lookup?search=${encodeURIComponent(res.ip)}`]].forEach(([label, href], i, arr) => {
+    const a = document.createElement("a");
+    a.href = href; a.target = "_blank"; a.rel = "noopener"; a.textContent = label;
+    linkTd.appendChild(a);
+    if (i < arr.length - 1) linkTd.appendChild(document.createTextNode(" · "));
+  });
+  tr.appendChild(linkTd);
+
+  const copyTd = document.createElement("td");
+  copyTd.className = "act";
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "small";
+  copyBtn.textContent = "📋 Copy";
+  copyBtn.title = "Copy investigation summary using your template";
+  copyBtn.onclick = () => copyText(fillTemplate(res));
+  copyTd.appendChild(copyBtn);
+  const fullBtn = document.createElement("button");
+  fullBtn.className = "small";
+  fullBtn.style.marginLeft = "6px";
+  fullBtn.textContent = "🧾 Full";
+  fullBtn.title = "Copy ALL raw data from every API source";
+  fullBtn.onclick = () => copyText(fullDataText(res));
+  copyTd.appendChild(fullBtn);
+  tr.appendChild(copyTd);
+
+  if (prepend && $("resultsBody").firstChild) {
+    $("resultsBody").insertBefore(tr, $("resultsBody").firstChild);
+  } else {
+    $("resultsBody").appendChild(tr);
+  }
+}
+
+function updateSummary() {
+  const mal = results.filter(r => r.verdict === "malicious").length;
+  const sus = results.filter(r => r.verdict === "suspicious").length;
+  const clean = results.filter(r => r.verdict === "clean").length;
+  $("summary").innerHTML =
+    `<b class="mal">Malicious: ${mal}</b> • <b class="sus">Suspicious: ${sus}</b> • <b class="clean">Clean: ${clean}</b> • Total: ${results.length}`;
+}
+
+// =============== SINGLE ===============
+$("singleBtn").onclick = async () => {
+  const ip = $("singleIp").value.trim();
+  if (!ip) return;
+  $("singleBtn").disabled = true;
+  $("status").textContent = `Checking ${ip}...`;
+  try {
+    const res = await checkWithCache(ip);
+    results.unshift(res);
+    saveStored();
+    renderRow(res);
+    updateSummary();
+    addToInvestigationLog(res);
+    $("status").textContent = `✅ ${res.ip}: ${res.verdict.toUpperCase()}` + (res.cached ? " (from browser cache)" : "");
+    $("singleIp").value = "";
+  } catch (e) {
+    $("status").textContent = "❌ " + e.message;
+  }
+  $("singleBtn").disabled = false;
+};
+$("singleIp").addEventListener("keydown", e => { if (e.key === "Enter") $("singleBtn").click(); });
+
+// Pre-fill the IP box with the user's own public IP by default.
+fetch("/api/my-ip")
+  .then(r => r.json())
+  .then(d => { if (d.ip && !$("singleIp").value) $("singleIp").value = d.ip; })
+  .catch(() => {});
+
+// =============== BULK ===============
+$("bulkBtn").onclick = async () => {
+  const lines = $("bulkIps").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!lines.length) { $("status").textContent = "⚠ Paste some IPs first."; return; }
+
+  const delay = $("slowMode").checked ? 15500 : 800;
+  stopRequested = false;
+  $("bulkBtn").disabled = true; $("stopBtn").disabled = false;
+  let done = 0, failed = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (stopRequested) { $("status").textContent = `Stopped at ${i}/${lines.length}.`; break; }
+    try {
+      const res = await checkWithCache(lines[i]);
+      results.unshift(res);
+      saveStored();
+      renderRow(res);
+      updateSummary();
+      addToInvestigationLog(res);
+      done++;
+      if (!res.cached && i < lines.length - 1) {
+        await new Promise(r => setTimeout(r, delay));
+      }
+    } catch (e) {
+      failed++;
+      $("status").textContent = `⚠ ${lines[i]}: ${e.message}`;
+    }
+    $("progressBar").style.width = `${Math.round(((i + 1) / lines.length) * 100)}%`;
+    if (!stopRequested) $("status").textContent = `Checked ${i + 1} / ${lines.length}...`;
+  }
+
+  if (!stopRequested) {
+    $("status").textContent = `✅ Done — ${done} checked` + (failed ? `, ${failed} skipped/invalid.` : ".");
+  }
+  $("bulkBtn").disabled = false; $("stopBtn").disabled = true;
+};
+$("stopBtn").onclick = () => { stopRequested = true; };
+
+// =============== COPY ALL / EXPORT / CLEAR ===============
+$("copyAllBtn").onclick = () => {
+  if (!results.length) { $("status").textContent = "⚠ Nothing to copy."; return; }
+  const text = results.map(r => fillTemplate(r)).join("\n\n" + "=".repeat(40) + "\n\n");
+  copyText(text);
+};
+
+$("clearBtn").onclick = () => {
+  if (!confirm("Clear the table and delete stored results from this browser?")) return;
+  results = [];
+  localStorage.removeItem("ipResults");
+  $("resultsBody").replaceChildren();
+  $("summary").textContent = "";
+  $("status").textContent = "";
+  $("progressBar").style.width = "0%";
+};
+
+$("exportBtn").onclick = () => {
+  if (!results.length) { $("status").textContent = "⚠ Nothing to export."; return; }
+  const svc = (obj, fmt) => !obj ? "—" : (obj.error ? "err: " + obj.error : fmt(obj));
+  const exStamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  const rowObjs = results.map(r => ({
+    cells: [
+      r.ip, r.verdict.toUpperCase(),
+      svc(r.vt, o => `${o.malicious} / ${o.malicious + o.suspicious + o.harmless + (o.undetected || 0) + (o.timeout || 0)}`),
+      svc(r.abuse, o => `${o.score}/100 · ${o.reports} rpts (${o.window_days || 90}d)` + (o.is_tor ? " Tor" : "")),
+      svc(r.talos, o => o.web_reputation || "Unknown"),
+      r.country || "—",
+      r.country_disagreement ? countrySourcesText(r) : "—",
+      r.isp || "—",
+      r.asn ? r.asn + (r.asn_name ? ` (${r.asn_name})` : "") : "—",
+      (r.abuse && !r.abuse.error && (r.abuse.domain || (r.abuse.hostnames && r.abuse.hostnames[0]))) || r.reverse_dns || "—",
+      (r.checked_at || "").slice(0, 16).replace("T", " ")
+    ],
+    vtUrl: `https://www.virustotal.com/gui/ip-address/${r.ip}`,
+    abUrl: `https://www.abuseipdb.com/check/${r.ip}`
+  }));
+
+  // Primary: a real .xlsx with clickable hyperlink cells (no Excel format warning).
+  // Links get their own columns because a worksheet cell carries one hyperlink.
+  if (typeof XLSX !== "undefined") {
+    const xcols = ["IP Address", "Verdict", "VT Mal/Total", "Abuse Score / Reports", "Cisco Talos",
+                   "Country", "Country Sources if Different", "ISP / AS", "ASN", "Domain / Host", "Checked", "VirusTotal", "AbuseIPDB"];
+    const aoa = [xcols, ...rowObjs.map(r => [...r.cells, "VirusTotal", "AbuseIPDB"])];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    rowObjs.forEach((r, i) => {
+      const rr = i + 1;
+      ws[XLSX.utils.encode_cell({ c: 11, r: rr })] = { t: "s", v: "VirusTotal", l: { Target: r.vtUrl, Tooltip: "Open in VirusTotal" } };
+      ws[XLSX.utils.encode_cell({ c: 12, r: rr })] = { t: "s", v: "AbuseIPDB", l: { Target: r.abUrl, Tooltip: "Open in AbuseIPDB" } };
+    });
+    ws["!cols"] = [16, 11, 13, 28, 11, 18, 48, 26, 26, 26, 18, 12, 12].map(wch => ({ wch }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "IP Reputation");
+    XLSX.writeFile(wb, `ip-reputation-${exStamp}.xlsx`);
+    return;
+  }
+
+  // Fallback (xlsx lib failed to load): HTML-table .xls with a combined Links cell.
+  const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const cols = ["IP Address", "Verdict", "VT Mal/Total", "Abuse Score / Reports", "Cisco Talos",
+                "Country", "Country Sources if Different", "ISP / AS", "ASN", "Domain / Host", "Checked", "Links"];
+  const body = rowObjs.map(r => {
+    const links = `<a href="${r.vtUrl}">VT</a> · <a href="${r.abUrl}">AbuseIPDB</a>`;
+    return "<tr>" + r.cells.map(v => `<td style="mso-number-format:'@'">${esc(v)}</td>`).join("") + `<td>${links}</td></tr>`;
+  }).join("");
+  const _xlStyle = "table{border-collapse:collapse}td,th{border:1px solid #b0b0b0;padding:5px 8px;font-family:Calibri,Arial,sans-serif;font-size:11pt}th{background:#1f2937;color:#fff;text-align:left}";
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"><style>${_xlStyle}</style></head><body><table><tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr>${body}</table></body></html>`;
+  const blob = new Blob(["\uFEFF" + html], { type: "application/vnd.ms-excel" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `ip-reputation-${exStamp}.xls`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+// =============== DOMAIN & HASH ===============
+let domainResults = [];
+let hashResults = [];
+
+function loadStoredGeneric(key) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || "[]");
+    const cutoff = Date.now() - ttlHours() * 3600 * 1000;
+    return raw.filter(r => new Date(r.checked_at).getTime() > cutoff);
+  } catch { return []; }
+}
+
+function vtTotal(o) {
+  return o.malicious + o.suspicious + o.harmless + (o.undetected || 0) + (o.timeout || 0);
+}
+
+function shortHash(h) { return h.length > 20 ? h.slice(0, 10) + "…" + h.slice(-8) : h; }
+
+// ---- DOMAIN ----
+async function apiCheckDomain(domain) {
+  const r = await fetch("/api/check-domain", { method: "POST", headers: authHeaders(), body: JSON.stringify({ domain }) });
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+  return body;
+}
+
+function renderDomainRow(res, prepend = true) {
+  const tr = document.createElement("tr");
+  tr.appendChild(td(res.domain, "ip"));
+
+  const vTd = document.createElement("td");
+  const badge = document.createElement("span");
+  badge.className = "badge " + res.verdict;
+  badge.textContent = res.verdict.toUpperCase();
+  vTd.appendChild(badge); tr.appendChild(vTd);
+
+  const svc = (obj, fmt) => { if (!obj) return td("—", "na"); if (obj.error) return td("err: " + obj.error); return td(fmt(obj)); };
+  tr.appendChild(svc(res.vt, o => `${o.malicious} / ${vtTotal(o)}`));
+  tr.appendChild(svc(res.vt, o => `${o.reputation}`));
+  tr.appendChild(svc(res.urlvoid, o => `${o.detections} / ${o.engines_count}`));
+  tr.appendChild(svc(res.urlvoid, o => `${o.risk_score}/100`));
+  tr.appendChild(svc(res.talos, o => o.web_reputation || "—"));
+  tr.appendChild(svc(res.urlvoid, o => o.asn ? o.asn + (o.isp ? ` (${o.isp})` : "") : "—"));
+  tr.appendChild(svc(res.urlvoid, o => [o.city, o.region, o.country].filter(Boolean).join(", ") || "—"));
+  tr.appendChild(svc(res.vt, o => (o.categories && o.categories.length ? o.categories.join(", ") : "—")));
+  tr.appendChild(td((res.checked_at || "").slice(0, 16).replace("T", " ")));
+
+  const linkTd = document.createElement("td");
+  [["VT", `https://www.virustotal.com/gui/domain/${res.domain}`],
+   ["Talos", res.talos_link]].forEach(([label, href], i, arr) => {
+    const a = document.createElement("a");
+    a.href = href; a.target = "_blank"; a.rel = "noopener"; a.textContent = label;
+    linkTd.appendChild(a);
+    if (i < arr.length - 1) linkTd.appendChild(document.createTextNode(" · "));
+  });
+  tr.appendChild(linkTd);
+
+  const copyTd = document.createElement("td");
+  copyTd.className = "act";
+  const b = document.createElement("button");
+  b.className = "small"; b.textContent = "📋 Copy";
+  b.title = "Copy investigation summary";
+  b.onclick = () => copyText(domainSummaryText(res));
+  copyTd.appendChild(b);
+  const fb = document.createElement("button");
+  fb.className = "small"; fb.style.marginLeft = "6px"; fb.textContent = "🧾 Full";
+  fb.title = "Copy ALL raw data from every API source";
+  fb.onclick = () => copyText(fullDataText(res));
+  copyTd.appendChild(fb);
+  tr.appendChild(copyTd);
+
+  const body = $("resultsBodyDomain");
+  if (prepend && body.firstChild) body.insertBefore(tr, body.firstChild); else body.appendChild(tr);
+}
+
+function domainSummaryText(r) {
+  const vt = r.vt && !r.vt.error ? r.vt : null;
+  const uv = r.urlvoid && !r.urlvoid.error ? r.urlvoid : null;
+  const ts = r.talos && !r.talos.error ? r.talos : null;
+  return `=== DOMAIN INVESTIGATION ===
+Domain        : ${r.domain}
+Final Verdict : ${(r.verdict || "").toUpperCase()}
+Checked At    : ${(r.checked_at || "").slice(0, 19).replace("T", " ")} UTC
+
+--- VirusTotal ---
+Malicious     : ${vt ? vt.malicious + "/" + vtTotal(vt) : "N/A"}
+Reputation    : ${vt ? vt.reputation : "N/A"}
+Categories    : ${vt && vt.categories ? vt.categories.join(", ") : "N/A"}
+Registrar     : ${vt ? (vt.registrar || "N/A") : "N/A"}
+Link          : https://www.virustotal.com/gui/domain/${r.domain}
+
+--- URLVoid (APIVoid) ---
+Blacklists    : ${uv ? uv.detections + "/" + uv.engines_count : "N/A"}
+Risk Score    : ${uv ? uv.risk_score + "/100" : "N/A"}
+
+--- Cisco Talos ---
+Web Reputation: ${ts ? (ts.web_reputation || "N/A") : "N/A"}
+Category      : ${ts ? (ts.category || "N/A") : "N/A"}
+Lookup        : ${r.talos_link}
+
+Analyst Notes:
+- `;
+}
+
+function updateDomainSummary() {
+  const c = v => domainResults.filter(r => r.verdict === v).length;
+  $("summaryDomain").innerHTML =
+    `<b class="mal">Malicious: ${c("malicious")}</b> • <b class="sus">Suspicious: ${c("suspicious")}</b> • <b class="clean">Clean: ${c("clean")}</b> • Total: ${domainResults.length}`;
+}
+
+$("domainBtn").onclick = async () => {
+  const d = $("domainInput").value.trim();
+  if (!d) return;
+  $("domainBtn").disabled = true;
+  $("status").textContent = `Checking ${d}...`;
+  try {
+    const res = await apiCheckDomain(d);
+    domainResults = domainResults.filter(r => r.domain !== res.domain);
+    domainResults.unshift(res);
+    localStorage.setItem("domainResults", JSON.stringify(domainResults.slice(0, 300)));
+    renderDomainRow(res);
+    updateDomainSummary();
+    addToInvestigationLog(res);
+    $("status").textContent = `✅ ${res.domain}: ${res.verdict.toUpperCase()}`;
+    $("domainInput").value = "";
+  } catch (e) { $("status").textContent = "❌ " + e.message; }
+  $("domainBtn").disabled = false;
+};
+$("domainInput").addEventListener("keydown", e => { if (e.key === "Enter") $("domainBtn").click(); });
+$("clearDomainBtn").onclick = () => {
+  if (!confirm("Clear domain results from this browser?")) return;
+  domainResults = []; localStorage.removeItem("domainResults");
+  $("resultsBodyDomain").replaceChildren(); $("summaryDomain").textContent = "";
+};
+
+// ---- HASH ----
+async function apiCheckHash(hash) {
+  const r = await fetch("/api/check-hash", { method: "POST", headers: authHeaders(), body: JSON.stringify({ hash }) });
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+  return body;
+}
+
+function renderHashRow(res, prepend = true) {
+  const tr = document.createElement("tr");
+  const hTd = td(shortHash(res.hash), "ip"); hTd.title = res.hash;
+  tr.appendChild(hTd);
+  tr.appendChild(td((res.algo || "").toUpperCase()));
+
+  const vTd = document.createElement("td");
+  const badge = document.createElement("span");
+  badge.className = "badge " + res.verdict;
+  badge.textContent = res.verdict.toUpperCase();
+  vTd.appendChild(badge); tr.appendChild(vTd);
+
+  const svc = (obj, fmt) => { if (!obj) return td("—", "na"); if (obj.error) return td("err: " + obj.error); return td(fmt(obj)); };
+  tr.appendChild(svc(res.vt, o => `${o.malicious} / ${vtTotal(o)}`));
+  tr.appendChild(svc(res.metadefender, o => `${o.detected} / ${o.engines_count}`));
+  tr.appendChild(svc(res.vt, o => o.threat_label || "—"));
+  tr.appendChild(svc(res.vt, o => o.type || "—"));
+  tr.appendChild(td((res.checked_at || "").slice(0, 16).replace("T", " ")));
+
+  const linkTd = document.createElement("td");
+  const a = document.createElement("a");
+  a.href = `https://www.virustotal.com/gui/file/${res.hash}`; a.target = "_blank"; a.rel = "noopener"; a.textContent = "VT";
+  linkTd.appendChild(a); tr.appendChild(linkTd);
+
+  const copyTd = document.createElement("td");
+  copyTd.className = "act";
+  const b = document.createElement("button");
+  b.className = "small"; b.textContent = "📋 Copy";
+  b.title = "Copy investigation summary";
+  b.onclick = () => copyText(hashSummaryText(res));
+  copyTd.appendChild(b);
+  const fb = document.createElement("button");
+  fb.className = "small"; fb.style.marginLeft = "6px"; fb.textContent = "🧾 Full";
+  fb.title = "Copy ALL raw data from every API source";
+  fb.onclick = () => copyText(fullDataText(res));
+  copyTd.appendChild(fb);
+  tr.appendChild(copyTd);
+
+  const body = $("resultsBodyHash");
+  if (prepend && body.firstChild) body.insertBefore(tr, body.firstChild); else body.appendChild(tr);
+}
+
+function hashSummaryText(r) {
+  const vt = r.vt && !r.vt.error ? r.vt : null;
+  const md = r.metadefender && !r.metadefender.error ? r.metadefender : null;
+  return `=== FILE HASH INVESTIGATION ===
+Hash          : ${r.hash}
+Algorithm     : ${(r.algo || "").toUpperCase()}
+Final Verdict : ${(r.verdict || "").toUpperCase()}
+Checked At    : ${(r.checked_at || "").slice(0, 19).replace("T", " ")} UTC
+
+--- VirusTotal ---
+Detections    : ${vt ? vt.malicious + "/" + vtTotal(vt) : "N/A"}
+Threat Label  : ${vt ? (vt.threat_label || "N/A") : "N/A"}
+File Type     : ${vt ? (vt.type || "N/A") : "N/A"}
+File Name     : ${vt ? (vt.name || "N/A") : "N/A"}
+Link          : https://www.virustotal.com/gui/file/${r.hash}
+
+--- MetaDefender ---
+Detections    : ${md ? md.detected + "/" + md.engines_count : "N/A"}
+Result        : ${md ? (md.result || "N/A") : "N/A"}
+
+Analyst Notes:
+- `;
+}
+
+function updateHashSummary() {
+  const c = v => hashResults.filter(r => r.verdict === v).length;
+  $("summaryHash").innerHTML =
+    `<b class="mal">Malicious: ${c("malicious")}</b> • <b class="sus">Suspicious: ${c("suspicious")}</b> • <b class="clean">Clean: ${c("clean")}</b> • Total: ${hashResults.length}`;
+}
+
+$("hashBtn").onclick = async () => {
+  const h = $("hashInput").value.trim();
+  if (!h) return;
+  $("hashBtn").disabled = true;
+  $("status").textContent = `Checking ${shortHash(h)}...`;
+  try {
+    const res = await apiCheckHash(h);
+    hashResults = hashResults.filter(r => r.hash !== res.hash);
+    hashResults.unshift(res);
+    localStorage.setItem("hashResults", JSON.stringify(hashResults.slice(0, 300)));
+    renderHashRow(res);
+    updateHashSummary();
+    addToInvestigationLog(res);
+    $("status").textContent = `✅ ${shortHash(res.hash)}: ${res.verdict.toUpperCase()}`;
+    $("hashInput").value = "";
+  } catch (e) { $("status").textContent = "❌ " + e.message; }
+  $("hashBtn").disabled = false;
+};
+$("hashInput").addEventListener("keydown", e => { if (e.key === "Enter") $("hashBtn").click(); });
+$("clearHashBtn").onclick = () => {
+  if (!confirm("Clear hash results from this browser?")) return;
+  hashResults = []; localStorage.removeItem("hashResults");
+  $("resultsBodyHash").replaceChildren(); $("summaryHash").textContent = "";
+};
+
+// restore stored domain/hash results
+domainResults = loadStoredGeneric("domainResults");
+domainResults.forEach(r => renderDomainRow(r, false));
+updateDomainSummary();
+hashResults = loadStoredGeneric("hashResults");
+hashResults.forEach(r => renderHashRow(r, false));
+updateHashSummary();
+
+// share buttons
+$("shareIpBtn").onclick = () => shareSubjects(results.map(r => r.ip));
+$("shareDomainBtn").onclick = () => shareSubjects(domainResults.map(r => r.domain));
+$("shareHashBtn").onclick = () => shareSubjects(hashResults.map(r => r.hash));
+
+init().then(loadFromQuery);
+</script>
+</body>
+</html>
